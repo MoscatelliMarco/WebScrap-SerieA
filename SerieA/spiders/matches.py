@@ -135,16 +135,55 @@ class MatchesSpider(scrapy.Spider):
         pass
 
     def parse_match(self, driver, current_day):
+
         # Reading JSON from a file
         with open('analyzed.json', 'r') as file:
             data = json.load(file)
 
+        # Match data dict
+        match_data = {}
+
+        # Transform html into scrapy response
+        general_resp = Selector(text=self.pages['general'])
+
+        # Get team names
+        first_team_name = general_resp.xpath("(//h3[@class='medium black name-team'])[1]/text()").get()
+        second_team_name = general_resp.xpath("(//h3[@class='medium black name-team'])[2]/text()").get()
+        match_data['First Team Name'] = first_team_name
+        match_data['Second Team Name'] = second_team_name
+        
+        # Scrape metrics for both teams
+        first_team_general_metrics = general_resp.xpath("(//div[@class='hm-content-list-stats-match-center'])[1]/div[contains(@class, 'd-none')]/p[1]/text()").getall()
+        second_team_general_metrics = general_resp.xpath("(//div[@class='hm-content-list-stats-match-center'])[1]/div[contains(@class, 'd-none')]/p[3]/text()").getall()
+        # à changed in a even if grammatically incorrect because à returns an unicode in the json file
+        metrics_name = ["Goal", "Occasioni Da Goal", "Assist", "Calci D'angolo", "Contrasti Vinti", "Contrasti Persi", "Palle Recuperate", "Palle Perse", "Falli Commessi", "Fuorigioco", "Parate", "Rigori", "Ammonizioni", "Doppie Ammonizioni", "Espulsioni", "Distanza Percorsa (km)", "Scatti", "Camminata (%)", "Corsa (%)", "Scatto (%)", "Dominio Territoriale", "Indice di pericolosita"]
+
+        # Scraping donut indeces
+        donut_indices = general_resp.css(".donut-percent::text").getall()
+        first_team_general_metrics.append(donut_indices[0])
+        first_team_general_metrics.append(donut_indices[1])
+        second_team_general_metrics.append(donut_indices[4])
+        second_team_general_metrics.append(donut_indices[5])
+
+        logging.info(first_team_general_metrics)
+        logging.info(second_team_general_metrics)
+        print(len(first_team_general_metrics), len(second_team_general_metrics), len(metrics_name))
+
+        for i, first_metric in enumerate(first_team_general_metrics):
+            # Transform any percentage into an integer
+            first_metric = first_metric.replace("%", "")
+            first_metric = int(first_metric)
+            match_data[f"FIRST {metrics_name[i]}"] = first_metric
+        for i, second_metric in enumerate(second_team_general_metrics):
+            # Transform any percentage into an integer
+            second_metric = second_metric.replace("%", "")
+            second_metric = int(second_metric)
+            match_data[f"SECOND {metrics_name[i]}"] = second_metric
+
         # Writing JSON to a file
         # For now just writing the teams name for debugging porpuse
         with open('analyzed.json', 'w') as file:
-            first_team = driver.find_element(By.XPATH, "(//h3[@class='medium black name-team'])[1]").text
-            second_team = driver.find_element(By.XPATH, "(//h3[@class='medium black name-team'])[2]").text
-            data.append({'1': first_team, '2': second_team})
+            data.append(match_data)
             json.dump(data, file, indent=4)  # The 'indent' parameter is optional and makes the output pretty-printed
 
     def remove_popup(self, driver):
@@ -210,34 +249,3 @@ class MatchesSpider(scrapy.Spider):
         current_day = int(current_day)
 
         return current_day
-
-
-    # def reach_day(self, day_to_reach, driver):
-
-    #     current_day = self.find_curr_day(driver)
-
-    #     # If current_day == 1 after button is not on the screen so go on day 2 to find it
-    #     if current_day != 1:
-    #         back_btn = driver.find_element(By.XPATH, "(//i[contains(text(), 'chevron_right')]/../parent::*[@class='d-flex align-items-center d-lg-none mt-3 mb-3']/div)[1]")
-    #         after_btn = driver.find_element(By.XPATH, "(//i[contains(text(), 'chevron_left')]/../parent::*[@class='d-flex align-items-center d-lg-none mt-3 mb-3']/div)[2]")
-    #     else:
-    #         after_btn = driver.find_element(By.XPATH, "(//i[contains(text(), 'chevron_right')]/../parent::*[@class='d-flex align-items-center d-lg-none mt-3 mb-3']/div)")
-    #         after_btn.click()
-    #         time.sleep(.5)
-    #         after_btn = driver.find_element(By.XPATH, "(//i[contains(text(), 'chevron_right')]/../parent::*[@class='d-flex align-items-center d-lg-none mt-3 mb-3']/div)[1]")
-
-    #     unique_el = driver.find_element(By.XPATH, "(//p[@class='p4 dark-grey medium uppercase'])[2]").text
-
-    #     # While cycle to reach the right day
-    #     while current_day != day_to_reach:
-
-    #         if current_day < day_to_reach:
-    #             after_btn.click()
-
-    #         if current_day > day_to_reach:
-    #             back_btn.click()
-
-    #         time.sleep(.15)
-
-    #         # Cause of latency there might be some errors if I just change the value of current_day directly without scraping it directly from the website
-    #         current_day = self.find_curr_day(driver)
