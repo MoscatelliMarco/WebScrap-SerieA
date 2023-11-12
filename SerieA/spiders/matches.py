@@ -37,22 +37,37 @@ class MatchesSpider(scrapy.Spider):
         # Load page and wait for it to load
         logging.info('Loading the page')
         driver.get("https://www.legaseriea.it/it/serie-a")
-        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//p[@class='p2 primary-400 medium ms-auto me-auto uppercase']")))
+        WebDriverWait(driver, 15).until(EC.visibility_of_element_located((By.XPATH, "//p[@class='p2 primary-400 medium ms-auto me-auto uppercase']")))
         time.sleep(.5)
 
         # Set a different window => needed later because the design of this window is more easy to scrape
-        driver.set_window_size(1200, 900)
+        driver.set_window_size(1200, 1000)
 
         # Calculate max day
-        # If start_day == 1 that means that the season is finished so max_day is just a really large number
+        # If start_day == 1 that means that the season is finished so max_day is the last element of the select input, else the one before the current_day after the page loads
         current_day = self.find_curr_day(driver)
         if current_day != 1:
             max_day = current_day - 1
         else:
-            max_day = 100
+            last_option = driver.find_element(By.XPATH, "(//select)[1]/option[last()]")
+            max_day = last_option.text
+            # Remove the last useless part: "° Giornata"
+            max_day = max_day[:-10]
+            max_day = int(max_day)
+
 
         current_day = 1
-        while current_day <= max_day or not self.is_visible(after_btn):
+        while current_day <= max_day:
+
+            # Analyze if JSON file and current_day are synchronized
+            # I notice that if I don't do this part some times it skips days and this code fix that
+            with open('analyzed.json', 'r') as file:
+                data = json.load(file)
+            try:
+                if data[-1]['DAY'] + 1 != current_day:
+                    current_day = data[-1]['DAY'] + 1
+            except:
+                pass
             
             # Find all buttons that lead to matches
             matches_btn = driver.find_elements(By.XPATH, "//div[@class='d-lg-none d-block ms-auto']/a[@class='hm-button-icon']")
@@ -60,13 +75,14 @@ class MatchesSpider(scrapy.Spider):
             for i, btn in enumerate(matches_btn):
                 logging.info("Wait page load and remove popup")
                 WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//div[@class='left d-flex align-content-around flex-wrap justify-content-center']")))
-                time.sleep(.5)
+                WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//div[@class='hm-block-title-with-border hm-container-spacing-top d-sm-flex align-items-end']")))
+                time.sleep(.2)
                 self.remove_popup(driver)
 
                 # Reach the day with the match to analyze
                 logging.info("Reach day")
                 self.reach_day(current_day, driver)
-                time.sleep(0.3)
+                time.sleep(.7)
 
                 # Find the location of the match button and go there
                 logging.info('Opening match link')
@@ -82,10 +98,19 @@ class MatchesSpider(scrapy.Spider):
                 # Set a different window => needed later because the design of this window is more easy to scrape
                 logging.info('Going into stats')
                 WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "(//div[@class='hm-nav-section']/ul/li)[5]")))
+                time.sleep(.3)
+                self.remove_popup(driver)
                 stats_btn = driver.find_element(By.XPATH, "(//div[@class='hm-nav-section']/ul/li/a)[5]")
                 driver.get(stats_btn.get_attribute('href'))
-                WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "//a[@id='tab-general']")))
-                time.sleep(.5)
+                logging.info("Going into match page")
+                time.sleep(.2)
+                try:
+                    WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.XPATH, "//a[@id='tab-general']")))
+                except TimeoutException:
+                    logging.info("Could not load #tab-general")
+                    # If even this one doesn't work just send a TimeoutError
+                    WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.XPATH, "//a[@id='tab-possession']")))
+                time.sleep(.2)
 
                 # Make all animations instant
                 driver.execute_script("document.documentElement.style.scrollBehavior = 'auto';")
@@ -95,8 +120,10 @@ class MatchesSpider(scrapy.Spider):
                 self.remove_popup(driver)
 
                 # Scrape all the general info
+                # Wait for the page to load, because I have noticed that in the saved data sometimes it doesn't include all metrics
+                time.sleep(.2)
                 self.pages['general'] = driver.page_source
-
+    
                 # Scrape all the possession info
                 possession_btn = driver.find_element(By.ID, "tab-possession")
                 driver.execute_script("arguments[0].scrollIntoView(true);", possession_btn)
@@ -127,9 +154,7 @@ class MatchesSpider(scrapy.Spider):
 
             current_day += 1
 
-        input()
-
-        # driver.close()
+        driver.close()
 
     def parse(self, response):
         pass
@@ -142,6 +167,7 @@ class MatchesSpider(scrapy.Spider):
 
         # Match data dict
         match_data = {}
+        match_data['DAY'] = current_day
 
         # Transform html into scrapy response
         general_resp = Selector(text=self.pages['general'])
@@ -197,28 +223,6 @@ class MatchesSpider(scrapy.Spider):
             # If the element is not found, do nothing
             pass
 
-    def is_visible(self, driver, element):
-        # Wait for the element to be present in the DOM
-        try:
-            # Check if the element is visible in the viewport
-            is_visible = driver.execute_script(
-                "var elem = arguments[0],                 " \
-                "  box = elem.getBoundingClientRect(),    " \
-                "  cx = box.left + box.width / 2,         " \
-                "  cy = box.top + box.height / 2,         " \
-                "  e = document.elementFromPoint(cx, cy); " \
-                "for (; e; e = e.parentElement) {         " \
-                "  if (e === elem)                        " \
-                "    return true;                         " \
-                "}                                        " \
-                "return false;                            ",
-                element)
-            return is_visible
-        except NoSuchElementException:
-            print("Element not found in the DOM")
-        except TimeoutException:
-            print("Timed out waiting for element to be present in the DOM")
-
     def reach_day(self, day_to_reach, driver):
         # Create a Select object
         select_input = driver.find_element(By.XPATH, "(//select)[1]")
@@ -244,8 +248,6 @@ class MatchesSpider(scrapy.Spider):
         current_day = selected_option.text
         # Remove the last useless part: "° Giornata"
         current_day = current_day[:-10]
-        print(selected_option.text)
-        print(current_day)
         current_day = int(current_day)
 
         return current_day
