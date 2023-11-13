@@ -230,7 +230,6 @@ class MatchesSpider(scrapy.Spider):
         second_team_possession_metrics.append(donut_indices[8].replace("%", ""))
         possession_metrics_name = ["15'", "30'", "45'", "60'", "75'", "90'", "Meta Campo Avversaria", "Propria Meta Campo", "Possesso Totale Relativo"]
 
-
         for i, first_metric in enumerate(first_team_possession_metrics):
             # Transform any percentage into an integer
             first_metric = first_metric.replace("%", "")
@@ -242,6 +241,38 @@ class MatchesSpider(scrapy.Spider):
             second_metric = int(second_metric)
             match_data[f"SECOND {possession_metrics_name[i]}"] = second_metric
 
+        first_team_passes_metrics = passes_resp.xpath("//div[@class='hm-content-list-stats-match-center']/div[contains(@class, 'hm-single-stats justify-content-between d-lg-flex d-none')]/p[1]/text()").getall()[28:39]
+        second__team_passes_metrics = passes_resp.xpath("//div[@class='hm-content-list-stats-match-center']/div[contains(@class, 'hm-single-stats justify-content-between d-lg-flex d-none')]/p[3]/text()").getall()[28:39]
+        donut_indices = passes_resp.css(".donut-percent::text").getall()
+        first_team_passes_metrics.append(donut_indices[9])
+        second__team_passes_metrics.append(donut_indices[11])
+        passes_metrics_name = ["Passaggi Riusciti", "Passaggi Sulla 3/4 Riusciti", "Passaggi Lunghi", "Passaggi Avanti", "Passaggi Indietro", "Passaggi Chiave", "Avversari Superati", "Disponibilita Al Passaggio (%)", "Indice Rischio Del Passaggio (%)", "Azioni Manovrate", "Durata Media Azioni Manovrate (s)", "Precisione Passaggi"]
+
+        for i, first_metric in enumerate(first_team_passes_metrics):
+            # Transform any percentage into an integer
+            first_metric = first_metric.replace("%", "")
+            first_metric = int(first_metric)
+            match_data[f"FIRST {passes_metrics_name[i]}"] = first_metric
+        for i, second_metric in enumerate(second_team_possession_metrics):
+            # Transform any percentage into an integer
+            second_metric = second_metric.replace("%", "")
+            second_metric = int(second_metric)
+            match_data[f"SECOND {passes_metrics_name[i]}"] = second_metric
+
+        first_team_shots_metrics = shots_resp.xpath("//div[contains(@class, 'hm-single-stats justify-content-between d-lg-flex d-none')]/p[1]/text()").getall()[39:]
+        second_team_shots_metrics = shots_resp.xpath("//div[contains(@class, 'hm-single-stats justify-content-between d-lg-flex d-none')]/p[3]/text()").getall()[39:]
+        shots_metrics_name = ["Tiri Totali", "Tiri In Porta", "Tiri Fuori", "Tiri Respinti", "Pali", "Tiri In Area", "Tiri da fuori Area", "Cross Totali", "Cross Riusciti", "Dribbling"]
+
+        for i, first_metric in enumerate(first_team_shots_metrics):
+            # Transform any percentage into an integer
+            first_metric = first_metric.replace("%", "")
+            first_metric = int(first_metric)
+            match_data[f"FIRST {passes_metrics_name[i]}"] = first_metric
+        for i, second_metric in enumerate(second_team_shots_metrics):
+            # Transform any percentage into an integer
+            second_metric = second_metric.replace("%", "")
+            second_metric = int(second_metric)
+            match_data[f"SECOND {passes_metrics_name[i]}"] = second_metric
 
         # Writing JSON to a file
         # For now just writing the teams name for debugging porpuse
