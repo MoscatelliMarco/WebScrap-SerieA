@@ -87,29 +87,34 @@ class MatchesSpider(scrapy.Spider):
                 # Find the location of the match button and go there
                 logging.info('Opening match link')
                 match_btn = driver.find_element(By.XPATH, f"(//div[@class='d-lg-none d-block ms-auto']/a[@class='hm-button-icon'])[{i+1}]")
-                driver.execute_script("arguments[0].scrollIntoView(true);", match_btn)
-                # Adjustment needed to put the button in the window
-                driver.execute_script("window.scrollBy(0, -250);")
-                driver.get(match_btn.get_attribute('href'))
-
-                # Element with all pages html
-                self.pages = {}
-
-                # Set a different window => needed later because the design of this window is more easy to scrape
-                logging.info('Going into stats')
-                WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "(//div[@class='hm-nav-section']/ul/li)[5]")))
+                match_link = match_btn.get_attribute('href')
+                to_continue = True
+                # Try to access the page again and again until you open it
+                while to_continue:
+                    driver.get(match_link)
+                    logging.info('Going into match')
+                    try:
+                        WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, "(//div[@class='hm-nav-section']/ul/li)[5]")))
+                        to_continue = False
+                    except TimeoutException:
+                        pass
                 time.sleep(.3)
                 self.remove_popup(driver)
+
                 stats_btn = driver.find_element(By.XPATH, "(//div[@class='hm-nav-section']/ul/li/a)[5]")
-                driver.get(stats_btn.get_attribute('href'))
-                logging.info("Going into match page")
-                time.sleep(.2)
-                try:
-                    WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.XPATH, "//a[@id='tab-general']")))
-                except TimeoutException:
-                    logging.info("Could not load #tab-general")
-                    # If even this one doesn't work just send a TimeoutError
-                    WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.XPATH, "//a[@id='tab-possession']")))
+                stats_link = stats_btn.get_attribute('href')
+                # Try to access the page again and again until you open it
+                to_continue = True
+                while to_continue:
+                    driver.get(stats_link)
+                    logging.info("Going into stats page")
+                    time.sleep(.2)
+                    try:
+                        WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.XPATH, "//a[@id='tab-general']")))
+                        to_continue = False
+                    except TimeoutException:
+                        pass
+                    
                 time.sleep(.2)
 
                 # Make all animations instant
@@ -119,8 +124,12 @@ class MatchesSpider(scrapy.Spider):
                 logging.info("Removing popup and saving htmls of all data")
                 self.remove_popup(driver)
 
+                # Element with all pages html
+                self.pages = {}
+
                 # Scrape all the general info
                 # Wait for the page to load, because I have noticed that in the saved data sometimes it doesn't include all metrics
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//p[contains(text(), 'Scatto')]")))
                 time.sleep(.2)
                 self.pages['general'] = driver.page_source
     
@@ -171,6 +180,9 @@ class MatchesSpider(scrapy.Spider):
 
         # Transform html into scrapy response
         general_resp = Selector(text=self.pages['general'])
+        possession_resp = Selector(text=self.pages['possession'])
+        passes_resp = Selector(text=self.pages['passes'])
+        shots_resp = Selector(text=self.pages['shots'])
 
         # Get team names
         first_team_name = general_resp.xpath("(//h3[@class='medium black name-team'])[1]/text()").get()
@@ -182,7 +194,7 @@ class MatchesSpider(scrapy.Spider):
         first_team_general_metrics = general_resp.xpath("(//div[@class='hm-content-list-stats-match-center'])[1]/div[contains(@class, 'd-none')]/p[1]/text()").getall()
         second_team_general_metrics = general_resp.xpath("(//div[@class='hm-content-list-stats-match-center'])[1]/div[contains(@class, 'd-none')]/p[3]/text()").getall()
         # à changed in a even if grammatically incorrect because à returns an unicode in the json file
-        metrics_name = ["Goal", "Occasioni Da Goal", "Assist", "Calci D'angolo", "Contrasti Vinti", "Contrasti Persi", "Palle Recuperate", "Palle Perse", "Falli Commessi", "Fuorigioco", "Parate", "Rigori", "Ammonizioni", "Doppie Ammonizioni", "Espulsioni", "Distanza Percorsa (km)", "Scatti", "Camminata (%)", "Corsa (%)", "Scatto (%)", "Dominio Territoriale", "Indice di pericolosita"]
+        general_metrics_name = ["Goal", "Occasioni Da Goal", "Assist", "Calci D'angolo", "Contrasti Vinti", "Contrasti Persi", "Palle Recuperate", "Palle Perse", "Falli Commessi", "Fuorigioco", "Parate", "Rigori", "Ammonizioni", "Doppie Ammonizioni", "Espulsioni", "Distanza Percorsa (km)", "Scatti", "Camminata (%)", "Corsa (%)", "Scatto (%)", "Dominio Territoriale", "Indice di pericolosita"]
 
         # Scraping donut indeces
         donut_indices = general_resp.css(".donut-percent::text").getall()
@@ -191,20 +203,45 @@ class MatchesSpider(scrapy.Spider):
         second_team_general_metrics.append(donut_indices[4])
         second_team_general_metrics.append(donut_indices[5])
 
-        logging.info(first_team_general_metrics)
-        logging.info(second_team_general_metrics)
-        print(len(first_team_general_metrics), len(second_team_general_metrics), len(metrics_name))
-
         for i, first_metric in enumerate(first_team_general_metrics):
             # Transform any percentage into an integer
             first_metric = first_metric.replace("%", "")
             first_metric = int(first_metric)
-            match_data[f"FIRST {metrics_name[i]}"] = first_metric
+            match_data[f"FIRST {general_metrics_name[i]}"] = first_metric
         for i, second_metric in enumerate(second_team_general_metrics):
             # Transform any percentage into an integer
             second_metric = second_metric.replace("%", "")
             second_metric = int(second_metric)
-            match_data[f"SECOND {metrics_name[i]}"] = second_metric
+            match_data[f"SECOND {general_metrics_name[i]}"] = second_metric
+
+        game_time = possession_resp.xpath("(//div[@class='hm-inline-specific-stats d-flex']/div//span[contains(text(), \"'\")])[1]/text()").get()
+        net_game_time = possession_resp.xpath("(//div[@class='hm-inline-specific-stats d-flex']/div//span[contains(text(), \"'\")])[2]/text()").get()
+        game_time = int(game_time.split("'")[0]) * 60 + int(game_time.split("'")[1])
+        net_game_time = int(net_game_time.split("'")[0]) * 60 + int(net_game_time.split("'")[1])
+        match_data['Game Time (s)'] = game_time
+        match_data['Net Game Time (s)'] = net_game_time
+
+        first_team_possession_metrics = possession_resp.xpath("//div[contains(@class, 'hm-single-stats justify-content-between d-lg-flex d-none')]/p[1]/text()").getall()
+        first_team_possession_metrics = first_team_possession_metrics[20:28]
+        second_team_possession_metrics = possession_resp.xpath("//div[contains(@class, 'hm-single-stats justify-content-between d-lg-flex d-none')]/p[3]/text()").getall()
+        second_team_possession_metrics = second_team_possession_metrics[20:28]
+        donut_indices = possession_resp.css(".donut-percent::text").getall()
+        first_team_possession_metrics.append(donut_indices[6].replace("%", ""))
+        second_team_possession_metrics.append(donut_indices[8].replace("%", ""))
+        possession_metrics_name = ["15'", "30'", "45'", "60'", "75'", "90'", "Meta Campo Avversaria", "Propria Meta Campo", "Possesso Totale Relativo"]
+
+
+        for i, first_metric in enumerate(first_team_possession_metrics):
+            # Transform any percentage into an integer
+            first_metric = first_metric.replace("%", "")
+            first_metric = int(first_metric)
+            match_data[f"FIRST {possession_metrics_name[i]}"] = first_metric
+        for i, second_metric in enumerate(second_team_possession_metrics):
+            # Transform any percentage into an integer
+            second_metric = second_metric.replace("%", "")
+            second_metric = int(second_metric)
+            match_data[f"SECOND {possession_metrics_name[i]}"] = second_metric
+
 
         # Writing JSON to a file
         # For now just writing the teams name for debugging porpuse
